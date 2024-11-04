@@ -1,50 +1,84 @@
 {
-  description = "vmm-reference";
-  nixConfig.bash-prompt = "[\\033[1;33mvmm-reference\\033[0m \\w]$ ";
+  description = "VMM reference";
+
+  nixConfig.bash-prompt = "vmm-reference";
+  nixConfig.bash-prompt-prefix = "[\\033[1;33m";
+  nixConfig.bash-prompt-suffix = "\\033[0m \\w]$ ";
+
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-    flake-compat = {
-      url = "github:edolstra/flake-compat";
-      flake = false;
-    };
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nix-vscode-extensions = {
       url = "github:nix-community/nix-vscode-extensions";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
-      inputs.flake-compat.follows = "flake-compat";
     };
   };
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-    flake-compat,
-    nix-vscode-extensions,
-  }: let
-    systems = ["x86_64-linux"];
-  in
-    flake-utils.lib.eachSystem systems (system: let
+
+  outputs =
+    {
+      self,
+      nixpkgs,
+      nix-vscode-extensions,
+    }:
+    let
+      system = "x86_64-linux";
+
       pkgs = nixpkgs.legacyPackages.${system};
-      inherit (pkgs) vscode-with-extensions vscodium;
+
+      vmm-reference = pkgs.callPackage ./. { };
+
       extensions = nix-vscode-extensions.extensions.${system};
-      vscode = vscode-with-extensions.override {
-        vscode = vscodium;
+
+      vscode = pkgs.vscode-with-extensions.override {
+        vscode = pkgs.vscodium;
         vscodeExtensions = [
-          extensions.open-vsx-release.rust-lang.rust-analyzer
           extensions.vscode-marketplace.bbenoist.nix
+          extensions.vscode-marketplace.timonwong.shellcheck
+
+          extensions.vscode-marketplace.rust-lang.rust-analyzer
+
+          extensions.vscode-marketplace-release.github.copilot
+          extensions.vscode-marketplace-release.github.copilot-chat
         ];
       };
-      vmm-reference = self.packages.${system}.vmm-reference;
-    in {
-      devShells = {
-        default = pkgs.mkShell {
-          packages = with pkgs; [cargo rustc vscode vmm-reference];
-        };
+
+      devshell = pkgs.mkShell rec {
+        packages = with pkgs; [
+
+          vscode
+          nixfmt-rfc-style
+
+          rustc
+          cargo
+          rustfmt
+          clippy
+        ];
+
+        shellHook = ''
+          export HOME=$(pwd)
+
+          export LD_LIBRARY_PATH="${pkgs.mesa.drivers}/lib:${pkgs.libglvnd}/lib:$LD_LIBRARY_PATH"
+          export LIBGL_DRIVERS_PATH="${pkgs.mesa.drivers}/lib/dri"
+          export LIBVA_DRIVERS_PATH="${pkgs.mesa.drivers}/lib/dri"
+
+          # export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig";
+          export RUST_SRC_PATH="${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          export RUST_BACKTRACE=1
+
+          echo "        nixpkgs: ${nixpkgs}"
+          echo
+          echo "  RUST_SRC_PATH: $RUST_SRC_PATH"
+          # echo "           glfw: ${pkgs.glfw}"
+        '';
       };
-      packages = {
-        vmm-reference = pkgs.callPackage ./. {};
+
+    in
+    {
+      devShells.${system} = {
+        default = devshell;
+      };
+      packages.${system} = {
+        inherit vmm-reference;
         default = vmm-reference;
       };
-    });
+    };
 }
